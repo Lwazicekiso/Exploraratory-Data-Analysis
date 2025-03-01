@@ -1,0 +1,446 @@
+---
+title: "Project 3"
+author: "Lwazi Cekiso"
+format: 
+  pdf: 
+    include_code: false
+    echo: false
+    warning: false
+    out-width: "70%"
+editor: visual
+---
+
+# How do trends in Olympic participation, performance, and medal distribution vary by country, sport, gender, and season over time, and what influence do hosting and seasonal factors have on these outcomes?
+
+## Introduction
+
+The Olympics are one of the most prestigious and most celebrated sporting events in the world, providing an opportunity for countries and athletes to showcase their theathletic prowess across multiple disciplines. The olympics have existed for centuries , they serve as a lens to not just view the competition between different countries they also serve as a platform to observe various patterns of participation , performance disparities, and the influence of external factors such as hosting nations and seasonal variations. This project will explore those observations in order to find out how perfomance nad medal distribution vary by country,sport, gender and season overtime . This will be done by analyzing data across multiple Olympic games to investigate how the number of medals won by top countries has changed, which sports have historically contributed the most to medal counts, and whether there is a discernible "host country advantage. Also it will explore the relationship between the season in which a sport is played and the amount of medals awarded.
+
+**The following key questions will be explored:**:
+
+1.  How have the number of medals won by top-performing countries changed over time?
+
+2.  Which sports have historically contributed the most to the medal tallies of top-performing countries?
+
+3.  Is there a measurable "host country advantage" in Olympic medal counts?
+
+4.  How do Summer and Winter Olympics differ in terms of medal distribution and performance trends?
+
+5.  How has the gender distribution of Olympic athletes evolved over time, and how has this impacted overall participation?
+
+Through a comprehensive analysis of these themes, we aim to shed light on the dynamics of the Olympic Games, enhancing our understanding of how historical, cultural, and environmental factors influence athletic outcomes. The insights gained from this project not only contribute to the discourse on sports and global competition but also highlight areas for potential improvement and equity in athletic representation.
+
+These steps include :
+
+### Duplicate Removal
+
+Duplicate records were identified and removed across all datasets. This step ensures that each row represents a unique record, preventing inflation of any one country’s or athlete’s statistics.
+
+### Handling missing data
+
+1.  Rows where critical fields such as `country_name` and `medal_type` were missing were removed, as these are essential for the analysis of country-wise and medal-wise performance.
+
+2.  For non-essential fields such as `athlete_url`, missing data was left intact because this information was not necessary for the current analysis. However, the presence of missing data in certain columns (e.g., athlete birth years) could lead to minor biases, especially when analyzing trends like age distribution.
+
+3.  **Impact of Missing Data**: We acknowledge that missing data, especially for athletes' details, may skew the results in sections like athlete age analysis. However, given that the percentage of missing critical data was low, we determined that removing rows with missing key fields would not significantly impact the overall trends in medal distribution or gender analysis.
+
+### Standardization of Categorical Data:
+
+-   The project standardizes the `event_gender` and `medal_type` columns to ensure consistency in the analysis. For instance, `event_gender` values were capitalized (`Male`, `Female`), and all `medal_type` values were converted to uppercase (`GOLD`, `SILVER`, `BRONZE`).
+
+-   Additionally, the country names were standardized by merging variants like "Soviet Union" and "Russia" into a single entity, "Russia." This decision was made to maintain consistency in the analysis since splitting these entities would make it difficult to accurately trace performance trends over time.
+
+### Merging Datasets:
+
+The cleaned datasets were merged to create a comprehensive table that included medals, athletes, and host country details.
+
+## Data Preparation
+
+To conduct this analysis this project s data from multiple Olympic data sets which are `olympic_medals.csv`, `olympic_hosts.csv`, `olympic_athletes.csv`, and `olympic_results.csv`, which have information covering athlete information, medal outcomes, event details, and host country data.
+
+Before the analysis of the data of the could begin key data cleaning and preparation steps were included to insure that the data analysis were as accurate as possible.
+
+```{r}
+#Loading packages
+#This is so that the output is not cluttered 
+
+library(tidyverse)
+library(stringr)
+library(dplyr)
+library(readr)
+
+# Loading the datasets and suppressing column specification messages
+medals <- read_csv("project_3_data/olympic_medals.csv", 
+                   na = c("N/A", "", "NA"), show_col_types = FALSE)
+hosts <- read_csv("project_3_data/olympic_hosts.csv", 
+                  na = c("N/A", "", "NA"), show_col_types = FALSE)
+athletes <- read_csv("project_3_data/olympic_athletes.csv", 
+                     na = c("N/A", "", "NA"), show_col_types = FALSE)
+results <- read_csv("project_3_data/olympic_results.csv",
+                    na = c("N/A", "", "NA"), show_col_types = FALSE)
+
+# Removing duplicates
+medals <- medals |> distinct()
+hosts <- hosts |> distinct()
+athletes <- athletes |> distinct()
+results <- results |> distinct()
+
+# Handling missing values
+medals <- medals |> drop_na(country_name, medal_type)
+
+# Date transformation and suppressing warnings about NA coercion
+medals <- suppressWarnings(
+  medals |> separate(slug_game, into = c("game_location", "game_year"),
+          sep = "-", remove = FALSE) |>
+          mutate(game_year = as.numeric(game_year))
+)
+
+# Standardizing event_gender and medal_type
+medals <- medals |> 
+  
+  mutate(
+    # Standardizing the gender labels
+    event_gender = str_to_title(event_gender),   
+         # Ensure medal_type is in uppercase
+         medal_type = toupper(medal_type))            
+
+
+#Transforming all the labels of variants of Soviet Union to Russia
+#This is to maintain consistency 
+medals <- medals |>
+  mutate(country_name = ifelse(grepl("Russia|Soviet", 
+                        country_name, ignore.case = TRUE), 
+                               "Russia", country_name))
+
+
+results  <- results |>
+ mutate(country_name = ifelse(grepl("Russia|Soviet",
+                              country_name, ignore.case = TRUE), 
+                               "Russia", country_name))
+
+hosts <- hosts |>
+   mutate(game_location = ifelse(grepl("Russia|Soviet", 
+                              game_location, ignore.case = TRUE), 
+                               "Russia", game_location))
+
+
+
+
+
+# Merging host data with medals
+medal_and_host_data <- medals |> rename(game_slug = slug_game) |>  
+  left_join(hosts, by = "game_slug")
+
+# Merging athletes and results data with relationship 
+#handling to suppress many-to-many warnings
+athletes_results_data <- results |> 
+  left_join(athletes, by = "athlete_url",
+            relationship = "many-to-many")
+
+
+```
+
+# Exploratory Data Analysis and Reporting
+
+## How have the number of medals won by top countries changed over time?
+
+The first research question relates to the change in the number of medals won by top-performing countries over the years. Traditionally, few countries like the United States and Russia, have monopolized the Olympics, especially in the Summer Games. A graph visualizing medal count overtime for the top 5 medal-earning countries, notably USA, Russia, Germany and Great Britain, reflects different trends.
+
+```{r warning=FALSE}
+# Merging host data with medals data to get better info on medals
+medals_by_country_year <- medals |>
+  group_by(game_year, country_name) |>
+  summarise(Total_Medals = n(), .groups = "drop") |>
+  arrange(desc(Total_Medals))
+
+# top 5 countries based on total medals
+top_countries <- medals_by_country_year |>
+  group_by(country_name) |>
+  summarise(Total_Medals = sum(Total_Medals), .groups = "drop") |>
+  arrange(desc(Total_Medals)) |>
+  slice_head(n = 5) |>
+  pull(country_name)
+
+# plotting medal trends for top countries over time 
+medals_by_country_year |>
+  filter(country_name %in% top_countries) |>
+  ggplot(aes(x = game_year, y = Total_Medals, color = country_name)) +
+  geom_line() +
+  geom_point() +  # Add points to visualize actual data points
+  labs(title = "Medal Distribution by Country Over Time", 
+       x = "Year", y = "Total Medals", color = "Country") +
+  theme_minimal() +
+  scale_y_continuous(breaks = seq(0, 300, by = 50), limits = c(0, 300)) + 
+  scale_x_continuous(breaks = seq(1890, 2020, by = 20)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+**Interpretation:**The USA although not consistent has led the medal tally across the Olympic Games, especially during the era between 1990 to 2020. Its dominance in Summer sports, particularly swimming and athletics, has allowed it to maintain a clear lead. Russia (and its Soviet-era predecessor) showed similar dominance during the Cold War, though its medal count declined in the post-Soviet era, reflecting political and economic challenges. This analysis ties into the broader geopolitical context of the 20th century, where Olympic success often served as a proxy for global influence. Political factors, including World War II, and the Cold War, caused visible fluctuations in these trends, particularly for countries like Russia and Germany.
+
+## Which sports have historically contributed the most medals to each of the top medal earning countries?
+
+The following analysis delves into which sports have historically contributed the most medals to top-performing countries. Countries tend to dominate specific disciplines, often influenced by cultural focus, institutional investment, and environmental factors.
+
+```{r}
+# Summarizing medals by sport and country
+medals_by_country_sports <- medal_and_host_data |>
+  group_by(discipline_title, country_name) |>
+  summarise(Total_Medals = n(), .groups = "drop") |>
+  arrange(country_name, desc(Total_Medals))
+
+# Get top 3 countries based on total medals
+top_countries <- medals_by_country_sports |>
+  group_by(country_name) |>
+  summarise(Total_Medals = sum(Total_Medals), .groups = "drop") |>
+  slice_max(Total_Medals, n = 3) |>
+  pull(country_name)
+
+# Filter the data to include only top countries
+top_sports_countries <- medals_by_country_sports |>
+  filter(country_name %in% top_countries)
+
+# Find the top sports that contributed the most medals for each country
+top_sports_contributions <- top_sports_countries |>
+  group_by(country_name) |>
+  slice_max(Total_Medals, n = 3) |>
+  ungroup()
+
+# Bar plot of top 3 sports by country, stacked one under the other
+ggplot(top_sports_contributions, 
+       aes(x = reorder(discipline_title,Total_Medals), 
+                                     y = Total_Medals,
+                                     fill = discipline_title)) +
+  geom_bar(stat = "identity", width = 0.7) +  # Bar width
+  geom_text(aes(label = Total_Medals),  
+            hjust = 1.1,  # Position the text inside the bars
+            vjust = 0.5,  
+            size = 3.5,  
+            color = "black",
+            check_overlap = TRUE) +  # Prevent text overlap
+  labs(title = "Top 3 Sports Contributing to Total Medals by Country",
+       x = "Sport",
+       y = "Total Medals",
+       fill = "Sport") +
+  theme_minimal(base_size = 10) +
+   # Rotate x-axis text slightly
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+   # Stack the facets vertically (1 column)
+  facet_wrap(~ country_name, scales = "free_y", ncol = 1) + 
+  coord_flip()  # Flip to horizontal bars
+
+```
+
+**Interpretation:** For the USA, athletics (track and field), swimming and diving have contributed the giants share of medals, affirming the country's historical strengths in these sports. Russia, meanwhile, has consistently excelled in gymnastics, wrestling, and Athletics this reflects the country’s focus on both Summer on these sports. This analysis highlights the strategic decisions nations make in focusing on particular sports. By investing in disciplines where they have historical success or competitive advantages, countries can maximize their overall medal counts.
+
+## Is there a "host country advantage" where host countries win more medals?
+
+The concept of a “host country advantage” posits that nations hosting the Olympics tend to perform better, often winning more medals than they would in non-hosting years. This could be attributed to various factors, including familiarity with local conditions, increased government investment, and national morale.
+
+```{r}
+
+
+hosts_cleaned <- hosts |>
+  select(game_slug, game_location, game_year) |>
+  rename(host_country = game_location)
+
+# Merging the results with hosts data to get the host country information
+results_with_hosts <- results |>
+  left_join(hosts_cleaned, by = c("slug_game" = "game_slug"))
+
+# Filtering to include only medalists
+medalists <- results_with_hosts |>
+  filter(!is.na(medal_type))
+
+# Separaing datasets for host country and non-host country medals
+host_medals <- medalists |>
+  filter(country_name == host_country)
+
+non_host_medals <- medalists |>
+  filter(country_name != host_country)
+
+# medals by year and country for host and non-host
+host_medals_summary <- host_medals |>
+  group_by(game_year, country_name) |>
+  summarise(host_medals = n(), .groups = 'drop') 
+
+non_host_medals_summary <- non_host_medals |>
+  group_by(game_year, country_name) |>
+  summarise(non_host_medals = n(), .groups = 'drop')
+# Merging host and non-host summaries
+host_vs_nonhost <- full_join(host_medals_summary, non_host_medals_summary, 
+                             by = c("game_year", "country_name")) |>
+  replace_na(list(host_medals = 0, non_host_medals = 0))
+
+# Reshaping the data for plotting
+host_vs_nonhost_long <- host_vs_nonhost |>
+  pivot_longer(cols = c("host_medals", "non_host_medals"), 
+               names_to = "host_status", 
+               values_to = "medals")
+
+
+
+
+# Plot the comparison with facets stacked vertically
+ggplot(host_vs_nonhost_long, aes(x = game_year,
+                                 y = medals,
+                                 color = host_status)) +
+  geom_line() +
+  geom_point(size = 1, alpha = 0.6)  +
+  labs(title = "Host Country Advantage in Medal Counts", 
+       x = "Year", y = "Number of Medals", color = "Medal Status") +
+  theme_minimal() +
+  scale_color_manual(labels = c("Host Year Medals", "Non-Host Year Medals"), 
+  values = c("host_medals" = "blue", "non_host_medals" = "red")) +
+  scale_x_continuous(breaks = seq(1890, 2020, by = 20)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.spacing = unit(2, "lines")) +  # Increases space between facets
+  facet_grid(host_status ~ .)  # Stack the facets vertically
+
+
+
+```
+
+**Interpretation:** The top graph shows the number of medals won by host countries (in blue) over the years. It appears that host countries tend to win a higher number of medals during their Olympic Games. However, the fluctuations suggest that the advantage varies significantly from one event to another.The bottom graph illustrates the number of medals won by non-host countries (in red). There seems to be a consistent pattern of medal counts over the years, but host countries generally have a spike during their hosting year, indicating a distinct advantage.Hosting the Olympics provides a notable boost to the medal tally of the host nation, likely due to home support, familiarity with venues, and resources. The sharp spikes in the host medals during specific years indicate periods of significant success, while the fluctuations in non-host medals show a more stable but lower count.
+
+## Which countries participate the most in athletics?
+
+```{r}
+
+participation_by_event <- results |>
+  filter(!is.na(athlete_url)) |>
+  group_by(discipline_title, country_name) |>
+  summarise(number_of_particaptions = n_distinct(athlete_url),
+            .groups = 'drop') |>
+  arrange(discipline_title, desc(number_of_particaptions))
+
+# Viewing the top countries for each event
+top_countries_per_event <- participation_by_event |>
+  group_by(discipline_title) |>
+  slice_head(n = 5)  
+
+# Filtering for Athletics
+top_country_in_athletics <- top_countries_per_event |>
+  filter(discipline_title == "Athletics") 
+
+# Creating a bar graph for top countries in Athletics
+ggplot(top_country_in_athletics, 
+aes(x = reorder(country_name, number_of_particaptions), 
+                                      y = number_of_particaptions, 
+                                      fill = country_name)) +
+  geom_bar(stat = "identity", width = 0.7) +  # Bar graph
+  coord_flip() +  # Flipping coordinates to make it horizontal
+  labs(title = "Top Countries in Athletics by Participation",
+       x = "Country",
+       y = "Number of Participants") +
+  geom_text(aes(label = number_of_particaptions),  
+            position = position_stack(vjust = 0.5),  # Center text on bars
+            hjust = 0.5,  # Center the text
+            vjust = 0.5,  
+            size = 3.5,  
+            color = "black",
+            check_overlap = TRUE) +  # Prevent text overlap
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+**Interpretation:** In the analysis above the United States leads significantly with 1,274 participants in athletics, showcasing its long-standing dominance in the sport. Great Britain follows with 598 participants, while the Soviet Union (502), Germany (437), and France (400) show considerable participation but are significantly behind the USA. The high number of participants from the USA suggests a strong investment in athletics, which aligns with its overall success in Olympic sports. The Soviet Union's participation highlights its historical strength in athletics, reflecting its emphasis on sports during its existence. The data may imply that nations with more athletes in a particular sport tend to have better overall performance, as evidenced by the USA's dominance in athletics.
+
+## Is there a correlation between the season in which a sport is played and the amount of medals awarded?
+
+The Olympic Games are held in two distinct seasons—Summer and Winter—which feature different sports and therefore offer different opportunities for nations to excel. This section examines the differences in medal distribution between the two seasons and whether participation in one season offers a competitive edge.
+
+```{r}
+
+# Renaming and joining datasets
+medals_by_year <- medals |>
+  rename(game_slug = slug_game) |>
+  left_join(hosts, by = "game_slug") |>
+  suppressWarnings(distinct())
+
+
+# Grouping by game_year and game_season
+medals_by_year <- medals_by_year |>
+  group_by(game_year.x, game_season) |>
+  summarise(Total_Medals = n(), .groups = 'drop')
+
+# Plotting medals awarded per year with different seasons
+ggplot(medals_by_year, aes(x = game_year.x, 
+y = Total_Medals, color = game_season)) +
+  geom_point()+
+  geom_line() +
+  labs(title = "Total Medals Awarded Per Year (Summer vs Winter)", 
+       x = "Year", 
+       y = "Total Medals") +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(1890, 2020, by = 20)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+**Interpretation:** Summer Olympics consistently award more medals than Winter Olympics due to the larger number of sports and participating athletes. Countries like the USA, , and Russia have reaped the benefits of this, dominating Summer sports that offer higher medal tallies. In contrast, countries such as Norway, which specializes in Winter sports like cross-country skiing and biathlon, excel in the Winter Olympics but are at a disadvantage overall due to the fewer medals available.This seasonal imbalance highlights the inherent challenges of comparing overall medal counts across countries that focus on different Olympic seasons. Nations that dominate Winter sports may struggle to keep pace with Summer-heavy countries in total medal counts, despite excelling in their respective sports.
+
+## What is the distribution of athletes' ages in the 2016 Olympic Games? Plot a histogram to show the age distribution.
+
+```{r}
+## find game name instead of joining to find the year 
+# Filtering the hosts data for the game name in 2016
+game_name_to_id <- hosts |>
+  filter(game_year == 2016) |>
+  select(game_name)  # result = Rio 2016
+
+# Creating a new dataframe with athletes and their ages
+athlete_with_ages <- athletes |>
+  filter(first_game == 'Rio 2016') |>
+  mutate(age = 2016 - athlete_year_birth)
+
+# Creating the histogram of athlete ages
+ggplot(athlete_with_ages, aes(x = age)) +
+  geom_histogram(binwidth = 2, 
+                 fill = "lightblue", 
+                 color = "black", alpha = 0.7) +
+  labs(title = "Age Distribution of Athletes in Rio 2016",
+       x = "Age",
+       y = "Number of Athletes") +
+  theme_minimal() +  
+  scale_x_continuous(breaks = seq(10, 50, by = 5)) +  
+  # Centering title and adjust its appearance
+  theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),  
+        axis.text.x = element_text(size = 10),  # Adjusting x-axis text size
+        axis.text.y = element_text(size = 10))  # Adjusting y-axis text size
+
+```
+
+**Interpretation:** The age distribution of athletes in the 2016 Olympics shows that most participants were between 20 and 30 years old. Sports like gymnastics tend to attract younger athletes, with many peaking in their teens or early twenties. In contrast, endurance sports like marathon running and equestrian events see higher participation from older athletes, some of whom continue competing into their 40s. This age distribution underscores the varying physical demands of different sports and highlights the diverse pathways athletes take to reach Olympic competition.
+
+## How has the gender distribution of Olympic athletes changed over time?
+
+The evolution of gender representation in the Olympics is a significant area of study, reflecting broader societal changes toward gender equality. Historically, men dominated Olympic participation, but recent decades have seen a concerted effort to include more women’s events and encourage female participation.
+
+```{r warning=FALSE}
+# Merge medals with host data
+medals_host_data <- medals 
+
+# Count number of athletes by gender and year
+gender_participation <- medals_host_data |>
+  filter(event_gender != "Open")|>
+  group_by(game_year, event_gender) |>
+  summarise(participation_count = n(), .groups = "drop")
+
+# Plot gender distribution over time
+ggplot(gender_participation, aes(x = game_year, 
+  y = participation_count, fill = event_gender)) +
+  geom_area(position = "stack") +
+  scale_x_continuous(breaks = seq(1890, 2020, by = 20)) +
+  labs(title = "Gender Distribution of Athletes Over Time", 
+    x = "Year", 
+    y = "Number of Athletes")
+
+```
+
+**Interpretation:** The data shows a steady increase in female participation, particularly after the 1980s when more women's events were introduced into the Olympics. While male participation still outpaces female participation, the gap is narrowing. Events such as gymnastics, swimming, and athletics have seen substantial increases in female representation, helping to drive this trend. This trend toward gender parity reflects broader global efforts to promote equality and inclusion in sports. However, it also raises questions about whether true parity has been achieved or if certain barriers still exist, particularly in traditionally male-dominated sports.
+
+# Conclusion
+
+This analysis has provided several key insights into the dynamics of Olympic participation and performance. The USA and Russia's dominance, particularly in the Summer Games, underscores the importance of strategic investments in sports that offer numerous medal opportunities, such as athletics and swimming. Russia's decline in the post-Cold War era, along with China's rise as a sporting powerhouse, reflects how political and economic conditions influence national performance in the Olympics. The concept of a host country advantage is well-supported by the data, with host nations consistently outperforming their usual medal counts during their hosting years. This is likely due to the home field advantage, greater preparation, and increased national pride. Gender analysis shows significant strides toward parity, though some barriers still exist, particularly in male-dominated sports. The growing inclusion of women in the Olympics reflects broader societal changes and global efforts toward gender equality. Finally, the analysis of seasonal differences demonstrates the inherent challenges in comparing total medal counts across nations, particularly for countries that specialize in Winter sports. The Summer Games, with their broader range of events, offer more opportunities for medals, leading to an imbalance in total medal counts between countries that excel in Winter versus Summer sports. These findings contribute to a deeper understanding of the complexities behind Olympic success, highlighting the influence of historical, political, and societal factors on global athletic competition.

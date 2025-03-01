@@ -1,0 +1,388 @@
+---
+title: "Project 2"
+author: "Lwazi Cekiso"
+format: 
+  pdf: 
+    include_code: false
+    echo: false
+    warning: false
+    out-width: "70%"
+editor: visual
+---
+
+# How do customer spending trends, product performance, and seasonal trends influence profitability and customer retention in retail stores?
+
+## Introduction
+
+In todays fast changing retail environment, insights into retail data sales analytics are a cornerstone to the success of businesss. By executing the evaluation of online retail purchase data this project will reveal insights into customer spending behaviors, product performance, seasonal trends, and customer loyalty. Each analysis focuses on a key aspect that, when combined, provides a holistic view of how these factors influence business performance. Using data-driven analysis, we would be able to identify the profitability drivers and customer retention that would be capable of usefully informing the optimized business operations and revenue generation strategies. The analyses cover everything from identifying top customers and best-selling products to understanding customer retention and the effects of seasonality on sales.
+
+**The following key questions will be explored:**
+
+1.  With different analyses, who are the biggest spending customers, and how do we support them better?
+
+2.  What products best sell, and how do they drive overall sales?
+
+3.  At what time of the year do sales peak, being related to seasonal factors?
+
+4.  To what extent would customer loyalty be reflected in overall spending, and what is the retention rate?
+
+This project integrates cleaning and transforming data, Exploratory data analysis , and visualization to provide actionable insights that will drive business decisions while strengthening relationships with customers
+
+## Data Preparation
+
+For the purpose of this project, the dataset used is "Online Retail.xlsx," containing transactional data from an online retail store. This dataset includes information such as product details, sales quantities, unit prices, and customer identifiers.
+
+Before conducting any analysis, it was essential to perform key data cleaning and preparation steps to ensure that the analysis would be accurate and reliable. The data cleaning process followed these key steps:
+
+### Removing Duplicates
+
+Duplicate records were identified and removed from the dataset to ensure that each row represented a unique transaction. By removing duplicates, we prevented any inflation in sales statistics due to repeated entries.
+
+-   **Duplicates removed:** A total of 5268 of duplicates were identified and removed while a total of 135037 with missing CustomerIDs were identified and removed. These as customer ID are essential for the accuracy of the analysis. While this is a significant portion of the data, it was necessary because customer-specific analysis required valid IDs. Other missing values were not addressed in this round of cleaning as they did not pertain to key fields for the current stage.
+
+### Data Type Conversion and Feature Engineering
+
+To facilitate the analysis of transaction trends over time, several transformations were applied:
+
+1.  Date Conversion: The InvoiceDate field, initially in string format, was converted to datetime format to enable time-based analyses.
+
+2.  **Feature Creation:** New time-related features such as `Year`, `Month`, `Day`, and `Hour` were extracted from the `InvoiceDate` field, allowing for deeper analysis of seasonal or time-based patterns.
+
+### Filtering Invalid Quantities
+
+Transactions with negative quantities were filtered out, as they are typically associated with returns or errors that are not relevant to the current analysis. Only transactions with positive quantities were retained for further exploration.
+
+By conducting these data preparation steps, we ensured the dataset was clean, consistent, and ready for the analysis phase.
+
+```{r}
+
+#Loading packages 
+#This is so that the output is not cluttered 
+
+library(tidyverse)
+library(readxl)
+library(dplyr)
+library(scales)
+library(lubridate)  
+library(patchwork)
+
+
+# Load the dataset
+retail_data <- read_xlsx("project_2_data/Online Retail.xlsx")
+
+# Remove duplicates and check how many were removed
+initial_count <- nrow(retail_data)
+retail_data <- retail_data |> distinct()
+removed_duplicates <- initial_count - nrow(retail_data)
+
+# Print how many duplicates were removed
+cat("Removed duplicates:", removed_duplicates, "\n")
+
+# Handle missing CustomerID
+missing_customers <- sum(is.na(retail_data$CustomerID))
+retail_data <- retail_data |> drop_na(CustomerID)
+
+# Print how many missing CustomerIDs were removed
+cat("Removed missing CustomerIDs:", missing_customers, "\n")
+
+# Convert InvoiceDate to datetime format and calculate TotalSales
+retail_data <- retail_data |>
+  mutate(InvoiceDate = as.POSIXct(InvoiceDate, format = "%m/%d/%Y %H:%M"),
+         TotalSales = Quantity * UnitPrice) |>
+  filter(Quantity > 0)  # Filter out negative quantities
+
+# Extract date-related features for analysis
+retail_data <- retail_data |>
+  mutate(Year = year(InvoiceDate),
+         Month = month(InvoiceDate, label = TRUE),
+         Day = day(InvoiceDate),
+         Hour = hour(InvoiceDate))
+
+# Handle missing values in CustomerID
+missing_customers <- sum(is.na(retail_data$CustomerID))
+if (missing_customers > 0) {
+  retail_data <- retail_data |> drop_na(CustomerID)
+  cat("Removed missing CustomerIDs:", missing_customers, "\n")
+}
+
+
+```
+
+# Exploratory Data Analysis and Reporting
+
+## **What do the customer lifetime values (CLV) indicate about customer profitability?**
+
+```{r}
+# Total sales per customer (Customer Lifetime Value)
+customer_lifetime_value <- retail_data |>
+  group_by(CustomerID) |>
+  summarise(TotalSpent = sum(TotalSales, na.rm = TRUE))
+
+# Top customers by lifetime value
+top_clv_customers <- customer_lifetime_value |>
+  slice_max(TotalSpent, n = 10)
+
+# Mapping of CustomerID to letters (A, B, C, etc.) 
+#instead of ID to imporve visual appeal
+top_clv_customers <- top_clv_customers |>
+  mutate(CustomerLabel = LETTERS[1:n()])
+
+# Bar plot of top 10 customers by lifetime value 
+ggplot(top_clv_customers, aes(x = reorder(CustomerLabel, TotalSpent),
+                              y = TotalSpent)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  scale_y_continuous(labels = dollar_format()) +
+  labs(title = "Top 10 Customers by Lifetime Value",
+       x = "Customer",
+       y = "Total Lifetime Spend") +
+  coord_flip() +
+  theme_minimal()
+
+```
+
+**Interpretation:** The first analysis delves into Customer Lifetime Value (CLV), a crucial metric for assessing the long-term revenue potential of customers. Our focus is on the top 10 highest-value customers, who significantly contribute to overall profitability. This highlights the critical need for effective retention strategies. By pinpointing these pivotal customers, businesses can strategically customize their services and engagement efforts, ultimately enhancing customer satisfaction and sustaining long-term profitability. Thus, understanding CLV not only informs business strategies but also reveals valuable insights into consumer behavior, which is essential for fostering lasting relationships and maximizing revenue potential.
+
+## **What products do these customers spend the most of their money on ?**
+
+```{r}
+
+# total sales of products bought by top customers
+top_customer_sales <- retail_data |>
+  filter(CustomerID %in% top_clv_customers$CustomerID) |>
+  group_by(Description) |>
+  summarise(TotalSpent = sum(TotalSales, na.rm = TRUE)) |>
+  slice_max(TotalSpent, n = 10)
+
+# Bar plot of top 10 products bought by top customers
+ggplot(top_customer_sales, aes(x = reorder(Description, TotalSpent),
+                               y = TotalSpent)) +
+  geom_bar(stat = "identity", fill = "brown") +
+  scale_y_continuous(labels = dollar_format()) +
+  geom_text(aes(label = dollar_format()(TotalSpent)),
+            position = position_dodge(width = 0.9),
+            # Adjust label position based on bar height
+            hjust = ifelse(top_customer_sales$TotalSpent < 50000, -0.1, 1.1),  
+            vjust = 0.5,  # Vertically center the text
+            size = 3.5,  # Adjusting size of text labels
+            color = "black") +
+  labs(title = "Top 10 Products Bought by Top Customers",
+       x = "Product Description",
+       y = "Total Spend by Top Customers") +
+  coord_flip() +
+  theme_minimal()
+
+```
+
+**Interpretation:** The analysis above shows the top 10 products bought by the top 10 customers.If certain products consistently drive high revenue, it’s smart to focus on those.By identifying the top customers based on CLV and identifying which they buy the most, businesses can tailor marketing and retention strategies to ensure these high-value customers remain engaged. This helps focus efforts where the most value is generated.
+
+## What is the customer retention rate for the top 10 customers ?
+
+```{r}
+# total purchases for top customers
+top_customers_ids <- top_clv_customers$CustomerID  # Extract IDs 
+
+customer_purchase_dates <- retail_data |>
+  filter(CustomerID %in% top_customers_ids) |>  # Filter for top customers
+  group_by(CustomerID) |>
+  summarise(TotalPurchases = n_distinct(InvoiceNo), .groups = "drop")
+
+# retention status for top customers
+retention_status <- customer_purchase_dates |>
+  mutate(Retained = ifelse(TotalPurchases > 1, 
+                           "Retained", "Not Retained")) |>
+  count(Retained)
+
+# total number of top customers
+total_customers <- sum(retention_status$n)
+
+# percentage of customers in each retention status
+retention_status <- retention_status |>
+  mutate(Percentage = (n / total_customers) * 100)
+
+# retention rates with a bar chart
+ggplot(retention_status, aes(x = Retained, y = round(n), fill = Retained)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(Percentage, 1), "%")), 
+            vjust = -0.5, size = 4.5) +  # Add percentage labels
+  labs(title = "Customer Retention Rate for Top 10 Customers",
+       x = "Customer Status",
+       y = "Number of Customers") +
+  scale_fill_manual(values = c("Retained" = "lightgreen",
+                               "Not Retained" = "lightcoral")) +
+  scale_y_continuous(limits = c(0, max(retention_status$n) * 1.1)) +
+  theme_minimal()
+```
+
+**Interpretation:** Now that we know who these top 10 customer we can determine the businesses engagement with them by determining the retention rate. According to the analysis above retention rate for high values customers is 90%,while the churn rate is 10 %. which signals high engagement with the customers that generate the most profit for the retail business.
+
+## **How does the overall customer retention rate reflect the retail business performance?**
+
+```{r}
+#total purchases per customer
+customer_purchase_dates <- retail_data |>
+  group_by(CustomerID) |>
+  summarise(TotalPurchases = n_distinct(InvoiceNo), .groups = "drop")
+
+# retention status 
+retention_status <- customer_purchase_dates |>
+  mutate(Retained = ifelse(TotalPurchases > 1, "Retained", "Not Retained")) |>
+  count(Retained)
+
+#  total number of customers
+total_customers <- sum(retention_status$n)
+
+#  percentage of customers in each retention status
+retention_status <- retention_status |>
+  mutate(Percentage = (n / total_customers) * 100)
+
+# bar chart
+ggplot(retention_status, aes(x = Retained, y = n, fill = Retained)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(Percentage, 1), "%")), 
+            vjust = -0.5, size = 4.5) + 
+  labs(title = "Customer Retention Rate",
+       x = "Customer Status",
+       y = "Number of Customers") +
+  scale_fill_manual(values = c("Retained" = "lightgreen", "Not Retained" = "lightcoral")) +
+  scale_y_continuous(limits = c(0, max(retention_status$n) * 1.1)) + 
+  theme_minimal()
+
+```
+
+**Interpretation:** While the retention rate for the top 10 customers is 90 % what the analysis above reveals is that the overall customer retention rate is 65.6% which reveals that there is room for improvement. Understanding why customers remain loyal or disengage can help businesses enhance satisfaction and develop loyalty programs that target a broader audience.
+
+## Do loyal customers (frequent buyers) spend more on average?
+
+```{r}
+#customer data (total sales and purchase frequency)
+customer_loyalty <- retail_data |>
+  group_by(CustomerID) |>
+  summarise(TotalSales = sum(TotalSales, na.rm = TRUE),
+            Frequency = n_distinct(InvoiceNo),
+            AvgSpendPerPurchase = TotalSales / Frequency)  
+
+
+# Frequency vs Total Sales
+suppressWarnings(ggplot(customer_loyalty, aes(x = Frequency,
+                                              y = TotalSales)) +
+  geom_point(color = "blue", alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") + 
+  scale_y_continuous(labels = dollar_format()) +  # Format y-axis as currency
+  labs(title = "Relationship between Purchase Frequency and Total Spending",
+       x = "Purchase Frequency",
+       y = "Total Sales") +
+  theme_minimal()
+)
+
+```
+
+**Interpretation:** According to the analysis of purchase frequency and total spending there's a positive correlation between how often customers purchase and their overall spending. Frequent buyers contribute more to total revenue, making them a key segment for businesses to focus on. Promoting loyalty through tailored product recommendations, discounts, and loyalty programs can encourage repeat purchases and maximize customer lifetime value.
+
+## Are there differences in spending behavior based on geographic location?
+
+```{r}
+country_sales <- retail_data |>
+  group_by(Country) |>
+  summarise(TotalSales = sum(TotalSales, na.rm = TRUE)) |>
+  filter(TotalSales>0)|>
+  arrange(desc(TotalSales))
+
+top_countries <- country_sales |> slice_max(TotalSales, n=5)
+
+top_countries |>
+  ggplot(aes(x = reorder(Country, TotalSales), y = TotalSales)) +
+  geom_bar(stat = "identity", fill = "darkred") +
+  scale_y_continuous(labels = dollar_format()) + 
+  labs(title = "Top 5 Sales by Country",
+       x = "Countries",
+       y = "Total Sales") +
+  theme_minimal() +
+  coord_flip()
+
+
+```
+
+**Interpretation:** Besides detemining the top customers, determining the top countries based on sales is also important. The geographic analysis above reveals that the United Kingdom is the dominant leader in total sales, highlighting a significant market presence. However, it's not solely about the location of customers, but the variance in their preferences across regions. These geographic differences in product choices imply that businesses must localize their strategies rather than adopting a blanket approach. A “one-size-fits-all” tactic is ineffective; targeted regional marketing can drive significantly improved outcomes. This localized tailoring allows companies to better align with regional consumer behavior, ultimately enhancing performance and customer satisfaction.
+
+## What are the top 3 best selling products in countries that generate the most sales?
+
+```{r}
+
+# total quantity sold by country and product
+products_by_country <- retail_data |>
+  group_by(Country, Description) |>
+  summarise(TotalQuantity = sum(Quantity, na.rm = TRUE), .groups = "drop") |>
+  arrange(Country, desc(TotalQuantity))
+
+# Get top 4 countries based on total quantity sold
+top_countries <- products_by_country |>
+  group_by(Country) |>
+  summarise(TotalQuantity = sum(TotalQuantity), .groups = "drop") |>
+  slice_max(TotalQuantity, n = 4) |>
+  pull(Country)
+
+# top 3 products for each country
+top_3_products <- products_by_country |>
+  filter(Country %in% top_countries) |>
+  group_by(Country) |>
+  slice_max(TotalQuantity, n = 3) |>
+  ungroup()
+
+#Bar plot of top 2 products by country
+ggplot(top_3_products, aes(x = reorder(Description, TotalQuantity),
+                            y = TotalQuantity, fill = Country)) +
+  geom_bar(stat = "identity", 
+           position = position_dodge(width = 0.9),
+           width = 0.7) + 
+  geom_text(aes(label = round(TotalQuantity, 1)),  
+            position = position_dodge(width = 0.9),
+            hjust = ifelse(top_3_products$TotalQuantity < 5000, -0.2, 1.1),
+            vjust = 0.5,  
+            size = 3.5,  
+            color = "black",
+            check_overlap = TRUE) +  # Prevent text overlap
+  labs(title = "Top 3 Products Sold by Country",
+       x = "Product Description",
+       y = "Total Quantity Sold") +
+  theme_minimal(base_size = 10) +
+  scale_y_continuous(labels = comma, 
+                     expand = expansion(mult = c(0, 0.15))) +
+  coord_flip()
+```
+
+**Interpretation:** The graph vividly illustrates the top-selling products across various countries, with "PAPER CRAFT, LITTLE BIRDIE" consistently emerging as a bestseller across all regions, indicating its broad, cross-cultural appeal. Yet, country-specific preferences diverge. For example, the "MEDIUM CERAMIC TOP STORAGE JAR" performs exceptionally well in the UK, while it garners less popularity in the Netherlands and the EIRE. This diversity in product sales, ranging from paper crafts to ceramics, toys, and novelty items, reflects retail store's ability to attract a wide customer base. Leveraging these insights could involve tailoring product offerings to align more closely with the preferences of individual countries whether by introducing new items or promoting those already favored in specific regions. Moreover, refining inventory management based on product demand will help maintain optimal stock levels. Lastly, executing targeted marketing campaigns that address regional preferences can significantly drive sales for the top products in each market.
+
+## In which month does the retail business generate the highest total sales, and what factors could contribute to seasonal variations in customer spending?
+
+```{r}
+# Total sales per month
+monthly_total_sales <- retail_data |>
+  mutate(Season = case_when(
+    Month %in% c("Dec", "Jan", "Feb") ~ "Winter",
+    Month %in% c("Mar", "Apr", "May") ~ "Spring",
+    Month %in% c("Jun", "Jul", "Aug") ~ "Summer",
+    Month %in% c("Sep", "Oct", "Nov") ~ "Fall"
+  )) |>
+  group_by(Month, Season) |>
+  summarize(TotalSales = sum(TotalSales, na.rm = TRUE))
+
+# Total sales by month and season
+ggplot(monthly_total_sales, aes(x = Month, y = TotalSales, fill = Season)) +
+  geom_bar(stat = "identity") +  # Bar plot for total sales
+  labs(title = "Total Sales by Month",
+       x = "Month",
+       y = "Total Sales") +
+  theme_minimal() +
+  scale_y_continuous(labels = dollar_format()) +
+  scale_fill_manual(values = c("Winter" = "lightblue", 
+                               "Spring" = "lightgreen", 
+                               "Summer" = "yellow", 
+                               "Fall" = "orange"))
+
+```
+
+**Interpretation:** Seasonality has a noticeable influence on retail dynamics, shaping sales trends in discernible ways. The data reveals a pronounced sales surge during the fall, specifically in October and November, likely a consequence of holiday shopping. This seasonal spike underscores an opportunity for businesses to fine-tune marketing efforts and inventory planning, capitalizing on peak demand periods for optimal outcomes. Conversely, the slower seasons present a challenge, yet also a potential area for innovation. Strategic interventions, such as targeted promotions or exclusive offers, could mitigate these lulls, fostering a steadier and more predictable sales trajectory throughout the year.
+
+## Conclusion
+
+Through data analysis, this project has revealed key insights into various dynamics, including Customer Lifetime Value (CLV), retention rates, purchase frequency, spending patterns, geographic variability, and seasonal trends. These findings empower businesses to refine strategies that boost loyalty, streamline inventory, and elevate customer satisfaction, driving profitability and securing their long-term position in a competitive market. Future research could explore more granular areas like customer churn, marketing effectiveness, and the influence of emerging trends. Continuous data-driven strategy adaptation is vital for retail success in an ever-changing landscape.
