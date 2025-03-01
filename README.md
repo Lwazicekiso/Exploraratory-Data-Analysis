@@ -49,7 +49,7 @@ This repository contains two exploratory data analysis (EDA) projects demonstrat
 ## 🔗 How to Use
 1. Clone this repository:
    ```sh
-   git clone https://github.com/your-username/your-repo.git
+   git clone https://github.com/Lwazicekiso/Exploraratory-Data-Analysis.git
    ```
 2. Open the `.qmd` files in **RStudio** or **Quarto**.
 3. Run the analysis and generate reports.
